@@ -7,3 +7,8 @@
  (public_name dup)
  (name dup)
  (libraries task2 bril yojson core))
+
+(executable
+ (public_name cfg_main)
+ (name cfg_main)
+ (libraries task2 bril yojson core))

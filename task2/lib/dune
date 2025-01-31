@@ -1,2 +1,3 @@
 (library
- (name task2))
+ (name task2)
+ (libraries core yojson))
