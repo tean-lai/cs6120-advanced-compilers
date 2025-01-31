@@ -1,0 +1,9 @@
+(executable
+ (public_name count)
+ (name count)
+ (libraries task2 bril yojson core))
+
+(executable
+ (public_name dup)
+ (name dup)
+ (libraries task2 bril yojson core))
