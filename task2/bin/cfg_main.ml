@@ -1,26 +1,10 @@
 open Bril
 open Task2
 module StringMap = Map.Make (String)
-
-type leader =
-  | Init
-  | Label of string
-  | None
-
-type block = {
-  leader : leader;
-  instrs : Instr.t list;
-}
-
 module IntSet = Set.Make (Int)
-(* module StringMap = Map.Make (String) *)
 
 let form_blocks (func : Func.t) =
-  (* let helper (instrs : Instr.t list) acc = match instrs with | [] -> acc | h
-     :: t -> ( match h with | Label label -> helper t ({ leader = Label label;
-     instrs = [ h ] } :: acc) ) in *)
   let instrs = Func.instrs func |> Array.of_list in
-  (* let leaders = ref (IntSet.of_list [ 1 ]) in *)
   let leaders = ref IntSet.empty in
   let label_to_index =
     let map = ref StringMap.empty in
@@ -58,7 +42,48 @@ let form_blocks (func : Func.t) =
   if !curr <> [] then blocks := List.rev !curr :: !blocks;
   !blocks
 
-let form_cfg func = failwith "todo"
+module Cfg = struct
+  type block = {
+    instrs : Instr.t array;
+    next : int list;
+  }
+
+  type t = block array
+
+  let init func =
+    let basic_blocks =
+      form_blocks func |> List.map Array.of_list |> Array.of_list
+    in
+    let label_to_index =
+      let map = ref StringMap.empty in
+      Array.iteri
+        (fun i (instrs : Instr.t array) ->
+          match instrs.(0) with
+          | Label label -> map := StringMap.add label i !map
+          | _ -> if i = 0 then map := StringMap.add "" 0 !map)
+        basic_blocks;
+      !map
+    in
+
+    let cfg =
+      let last_i = Array.length basic_blocks - 1 in
+
+      let help l = StringMap.find l label_to_index in
+      Array.mapi
+        (fun i (block : Instr.t array) : block ->
+          let next =
+            match block.(Array.length block - 1) with
+            | Br (_, l1, l2) ->
+                [ l1; l2 ] |> List.map help |> List.sort_uniq Int.compare
+            | Jmp l -> [ help l ]
+            | _ when i == last_i -> []
+            | _ -> [ i + 1 ]
+          in
+          { instrs = block; next })
+        basic_blocks
+    in
+    cfg
+end
 
 let prog =
   In_channel.input_all In_channel.stdin
@@ -75,4 +100,17 @@ let print_blocks blocks =
          print_endline "==end_block==");
   print_endline "==end_end==\n"
 
-let () = functions_blocks |> List.iter print_blocks
+let print_cfg (cfg : Cfg.t) =
+  print_endline "NEW FUNCTION";
+  Array.iteri
+    (fun i (block : Cfg.block) ->
+      Printf.printf "Block %d\n" i;
+      block.instrs |> Array.map Instr.to_string |> Array.iter print_endline;
+      print_string "It connects to blocks: ";
+      block.next |> List.iter (Printf.printf "%d ");
+      print_endline "\n")
+    cfg
+
+(* let () = functions_blocks |> List.iter print_blocks *)
+
+let () = prog |> List.map Cfg.init |> List.iter print_cfg
