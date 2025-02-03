@@ -88,6 +88,8 @@ and parse_instr (instr : Yojson.Basic.t) : instr_exp =
   let op = json2string (List.assoc "op" assoc) in
   match op with
   | "const" -> parse_const_instr op assoc instr
+  | "add" -> parse_value_instr op assoc instr
+  | _ -> failwith "unimplemented"
 
 and parse_const_instr op assoc instr =
   let dest = json2string (List.assoc "dest" assoc) in
@@ -99,6 +101,10 @@ and parse_const_instr op assoc instr =
     | _ -> raise (Invalid_argument "not int or bool")
   in
   { op; dest; value }
+
+and parse_value_instr op assoc instr =
+  (* let dest = json2string (List.assoc "dest" assoc) in *)
+  failwith "unimplemented"
 
 (* match instr with | `Assoc assoc -> let dest = json2string (List.assoc "dest"
    assoc) *)
