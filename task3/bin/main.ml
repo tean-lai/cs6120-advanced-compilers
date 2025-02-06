@@ -1,5 +1,6 @@
 open Bril
 open Task3
+open Task3.Trivial
 
 let prog =
   In_channel.input_all In_channel.stdin

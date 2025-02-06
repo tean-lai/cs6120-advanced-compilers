@@ -1,0 +1,6 @@
+@main() {
+  hi: bool = const true;
+  acc: int = const 1;
+  y: int = call @bin_pow x n acc;
+  print y;
+}
