@@ -10,8 +10,6 @@ def _one_pass(instrs):
     output = []
     changed = False
     for i in range(len(instrs) - 1, -1, -1):
-        # print("loop")
-        # print(unused_vars)
         instr = instrs[i]
 
         if "dest" in instr:
@@ -21,17 +19,12 @@ def _one_pass(instrs):
                 continue
             else:
                 unused_vars.add(dest)
-        # print(unused_vars)
 
         output.append(instr)
 
         for arg in instr.get("args", ()):
             if arg in unused_vars:
                 unused_vars.remove(arg)
-        # print(unused_vars)
-        # print()
-        # print(used_vars)
-    # print()
 
     return output[::-1], changed
 
@@ -68,7 +61,6 @@ def global_dce2(instrs):
         for arg in instr.get("args", ()):
             use_loc[arg].add(i)
 
-        # print(unused_vars)
     queue = deque()
     for i, instr in enumerate(instrs):
         if "dest" in instr and not use_loc[instr["dest"]]:
@@ -78,7 +70,6 @@ def global_dce2(instrs):
     while queue:
         j = queue.popleft()
         instr = instrs[j]
-        # print("hi", len(queue), instr)
         if "dest" not in instrs[j]:
             continue
 

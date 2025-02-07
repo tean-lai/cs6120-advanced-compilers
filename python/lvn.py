@@ -53,20 +53,11 @@ def lvn(instrs, const_prop=False):
             value.append(instr["value"])
         value = tuple(value)
 
-        # print("var2num:", var2num)
-        # print("table:")
-        # for i in table:
-        #     print(i)
-        # print("var2num:", var2num)
-        # print()
-
         if instr["op"] in should_exist_already:
             output.append(_reconstruct_args(instr, table, var2num))
             continue
 
         # assert not ((instr.get("value", None)) and (not instr.get("args", None))), instr
-
-        # value = tuple([instr["op"]] + [var2num[arg] for arg in instr.get("args", ())])
 
         assert "dest" in instr, instr
         in_table = False
@@ -74,7 +65,6 @@ def lvn(instrs, const_prop=False):
             if value == table[i][0] and not (
                 table[i][0][0] == "const" and type(value[1]) != type(table[i][0][1])
             ):
-                # output.append({"op": "id", "args": [table[i][1]]})
                 instr = _reconstruct_args(instr, table, var2num)
                 instr["op"] = "id"
                 instr["args"] = [table[i][1]]
