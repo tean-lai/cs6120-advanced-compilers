@@ -18,6 +18,13 @@ def _reconstruct_args(instr, table, var2num):
     return new_instr
 
 
+def _fresh():
+    count = 0
+    while True:
+        yield f"v{count}"
+        count += 1
+
+
 def lvn(instrs, const_prop=False):
     """Takes in list of instructions, returns a list of optimized instructions."""
     table = []
@@ -33,7 +40,7 @@ def lvn(instrs, const_prop=False):
         assert "op" in instr
 
         # print("instr:", instr)
-        should_exist_already = ["print", "id", "nop", "ret", "call", "br"]
+        should_exist_already = ["print", "id", "nop", "ret", "call", "br", "jmp"]
         value = [instr["op"]]
         for arg in instr.get("args", ()):
             if arg not in var2num:
@@ -61,6 +68,7 @@ def lvn(instrs, const_prop=False):
 
         # value = tuple([instr["op"]] + [var2num[arg] for arg in instr.get("args", ())])
 
+        assert "dest" in instr, instr
         in_table = False
         for i in range(len(table)):
             if value == table[i][0]:
@@ -75,9 +83,19 @@ def lvn(instrs, const_prop=False):
         if in_table:
             continue
 
-        assert "dest" in instr, instr
         # assert instr["op"] != "const", value
         dest = instr["dest"]
+        if dest in var2num:
+            curr_num = var2num[dest]
+            replacement = None
+            for i in var2num:
+                if var2num[i] == curr_num and i != dest:
+                    replacement = i
+                    table[curr_num] = (table[curr_num][0], replacement)
+                    break
+            if not replacement:
+                table[curr_num] = (None, None)
+
         var2num[dest] = len(table)
         table.append((value, dest))
 
