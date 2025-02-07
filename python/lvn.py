@@ -71,7 +71,9 @@ def lvn(instrs, const_prop=False):
         assert "dest" in instr, instr
         in_table = False
         for i in range(len(table)):
-            if value == table[i][0]:
+            if value == table[i][0] and not (
+                table[i][0][0] == "const" and type(value[1]) != type(table[i][0][1])
+            ):
                 # output.append({"op": "id", "args": [table[i][1]]})
                 instr = _reconstruct_args(instr, table, var2num)
                 instr["op"] = "id"

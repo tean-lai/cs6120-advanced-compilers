@@ -30,3 +30,5 @@ _opam/
 
 __pycache__/
 .venv/
+
+*.csv
