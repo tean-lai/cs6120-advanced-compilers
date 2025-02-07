@@ -31,15 +31,15 @@ def _reconstruct_args(instr, table, var2num, active_opt):
     #             print("recurse", instr, new_instr, table)
     #         return _reconstruct_args(new_instr, table, var2num, active_opt)
 
-    if op == "id" and "const_prop" in active_opt:
-        arg = instr["args"][0]
-        num = var2num[arg]
-        val, var = table[num]
-        if val[0] == "constant":
-            new_instr["op"] = "constant"
-            new_instr["args"] = []
-            new_instr["value"] = val[1]
-        return new_instr
+    # if op == "id" and "const_prop" in active_opt:
+    #     arg = instr["args"][0]
+    #     num = var2num[arg]
+    #     val, var = table[num]
+    #     if val[0] == "constant":
+    #         new_instr["op"] = "constant"
+    #         new_instr["args"] = []
+    #         new_instr["value"] = val[1]
+    #     return new_instr
 
     for i, arg in enumerate(instr.get("args", [])):
         num = var2num[arg]
@@ -53,6 +53,16 @@ def _fresh():
     while True:
         yield f"v{count}"
         count += 1
+
+
+def _is_const(var, table, var2num):
+    num = var2num[var]
+    val, var = table[num]
+    cond = isinstance(val, tuple) and val[0] == "const"
+    if debug_mode:
+        print("is_const", cond, var, table)
+
+    return isinstance(val, tuple) and val[0] == "const"
 
 
 def lvn(instrs, active_opt):
@@ -71,12 +81,11 @@ def lvn(instrs, active_opt):
             continue
 
         assert "op" in instr
-        op = instr["op"]
 
         # print("instr:", instr)
         # no_def = ["print", "nop", "ret", "br", "jmp"]
         commutative_ops = ["add", "mul", "eq"]
-        value = [op]
+        value = [instr["op"]]
         for arg in instr.get("args", ()):
             if arg not in var2num:
                 i = len(table)
@@ -87,7 +96,7 @@ def lvn(instrs, active_opt):
             value.append(var2num[arg])
         if "value" in instr:
             value.append(instr["value"])
-        if "commutativity" in active_opt and op in commutative_ops:
+        if "commutativity" in active_opt and instr["op"] in commutative_ops:
             value[1:] = sorted(value[1:])
             if debug_mode:
                 print("commutative: ", value)
@@ -102,7 +111,7 @@ def lvn(instrs, active_opt):
         # assert not ((instr.get("value", None)) and (not instr.get("args", None))), instr
 
         assert "dest" in instr, instr
-        if op == "id" and "copy_prop" in active_opt:
+        if instr["op"] == "id" and "copy_prop" in active_opt:
             instr = deepcopy(instr)
             repeat = True
             while repeat:
@@ -119,9 +128,79 @@ def lvn(instrs, active_opt):
                         print("repeating", instr, val, var, table)
                 else:
                     repeat = False
+        if instr["op"] == "id" and "const_prop" in active_opt:
+            # best used with copy_prop
+            num = var2num[instr["args"][0]]
+            val, var = table[num]
+            if isinstance(val, tuple) and val[0] == "const":
+                instr: dict = deepcopy(instr)
+                instr.pop("args")
+                instr["op"] = "const"
+                instr["value"] = val[1]
+
+        if "const_fold" in active_opt:
+            valid_ops = [
+                "add",
+                "sub",
+                "mul",
+                "div",
+                "eq",
+                "lt",
+                "gt",
+                "le",
+                "ge",
+                "not",
+                "and",
+                "or",
+            ]
+            if all(_is_const(var, table, var2num) for var in instr.get("args", ())):
+                if instr["op"] in valid_ops:
+                    if debug_mode:
+                        print("const_fold begin", instr)
+                    instr = deepcopy(instr)
+                    args = []
+                    for arg in instr["args"]:
+                        num = var2num[arg]
+                        args.append(table[num][0][1])
+                    if debug_mode:
+                        print("argsa", args)
+                    match instr["op"]:
+                        case "add":
+                            const = args[0] + args[1]
+                        case "sub":
+                            const = args[0] - args[1]
+                        case "mul":
+                            const = args[0] * args[1]
+                        case "div":
+                            const = args[0] / args[1]
+                        case "eq":
+                            const = args[0] == args[1]
+                        case "lt":
+                            const = args[0] < args[1]
+                        case "le":
+                            const = args[0] <= args[1]
+                        case "gt":
+                            const = args[0] > args[1]
+                        case "ge":
+                            const = args[0] >= args[1]
+                        case "and":
+                            const = args[0] and args[1]
+                        case "or":
+                            const = args[0] or args[1]
+                        case "not":
+                            const = args[0]
+                    instr["op"] = "const"
+                    instr.pop("args")
+                    instr["value"] = const
+                    value = ("const", const)
+                    if debug_mode:
+                        print("const_fold end", instr)
+                        print("const_fold")
 
         in_table = False
         for i in range(len(table)):
+            if ("const_fold") in active_opt and table[i][0][0] == "const":
+                continue
             if (
                 value == table[i][0]
                 and not (
@@ -129,7 +208,9 @@ def lvn(instrs, active_opt):
                 )
                 and table[i][1] is not None
             ):
-                instr = _reconstruct_args(instr, table, var2num, active_opt)
+                # instr = _reconstruct_args(instr, table, var2num, active_opt)
+                if debug_mode:
+                    print("match", table[i], value)
                 instr["op"] = "id"
                 instr["args"] = [table[i][1]]
                 var2num[instr["dest"]] = i
@@ -154,12 +235,14 @@ def lvn(instrs, active_opt):
 
         var2num[dest] = len(table)
         assert value is not None and dest is not None, str(value) + " " + str(dest)
+        if debug_mode:
+            print("append", instr, value, dest)
         table.append((value, dest))
         if debug_mode:
             print("table")
             for i in table:
-                print(i)
-            print("var2num", var2num)
+                print("table", i)
+            print("table var2num", var2num)
 
         output.append(_reconstruct_args(instr, table, var2num, active_opt))
 
@@ -178,8 +261,8 @@ if __name__ == "__main__":
     active_opts = []
     active_opts.append("copy_prop")
     active_opts.append("commutativity")
-    # active_opts.append("const_prop")
-    # active_opts.append("const_fold")
+    active_opts.append("const_prop")
+    active_opts.append("const_fold")
 
     for func in prog["functions"]:
         blocks = BasicBlocks(func)
