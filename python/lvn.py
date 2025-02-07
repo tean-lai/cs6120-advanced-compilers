@@ -36,10 +36,11 @@ def lvn(instrs, const_prop=False):
         should_exist_already = ["print", "id", "nop", "ret", "call", "br"]
         value = [instr["op"]]
         for arg in instr.get("args", ()):
-            if arg not in var2num and instr["op"] not in should_exist_already:
+            if arg not in var2num:
                 i = len(table)
                 table.append((arg, arg))  # first arg just has to be "fresh"
                 var2num[arg] = i
+
             value.append(var2num[arg])
         if "value" in instr:
             value.append(instr["value"])
