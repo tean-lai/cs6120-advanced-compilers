@@ -172,7 +172,7 @@ def lvn(instrs, active_opt):
                         case "mul":
                             const = args[0] * args[1]
                         case "div":
-                            const = args[0] / args[1]
+                            const = args[0] // args[1]
                         case "eq":
                             const = args[0] == args[1]
                         case "lt":
