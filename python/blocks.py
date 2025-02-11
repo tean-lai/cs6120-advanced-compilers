@@ -57,7 +57,9 @@ class BasicBlocks:
             for j in self.succ[i]:
                 k = self._label_to_idx[j]
                 new.add(k)
-                self.pred[k] = i
+                if k not in self.pred:
+                    self.pred[k] = set()
+                self.pred[k].add(i)
             self.succ[i] = new
 
     def debug_print(self):
