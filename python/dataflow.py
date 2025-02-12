@@ -19,10 +19,11 @@ class _AbstractProp:
     def transfer(b, iter):
         raise "Transfer not implemented"
 
+    def is_forward():
+        raise "IDK"
+
 
 class _InitVar(_AbstractProp):
-    is_forward = True
-    is_backward = False
 
     def init():
         return set()
@@ -45,6 +46,9 @@ class _InitVar(_AbstractProp):
             if "dest" in instr:
                 set2.add(instr["dest"])
         return set2, set1 == set2
+
+    def is_forward():
+        return True
 
     def to_string(prop):
         if not prop:
@@ -132,11 +136,29 @@ class _ConstProp(_AbstractProp):
                 break
         return out_prop, changed
 
+    def is_forward(prop):
+        return True
+
     def to_string(prop):
         prop = prop.copy()
         for i in prop:
             if prop[i] is None:
                 prop[i] = "??"
+        return str(prop)
+
+
+class _IntAnalysis(_AbstractProp):
+
+    def init():
+        return {}
+
+    def merge(b, props):
+        pass
+
+    def transfer(b, prop):
+        pass
+
+    def to_string(prop):
         return str(prop)
 
 
@@ -178,6 +200,7 @@ if __name__ == "__main__":
     prog = json.load(sys.stdin)
     # init_var = _InitVar
     init_var = _ConstProp
+    # init_var = _IntAnalysis
 
     for func in prog["functions"]:
         blocks = BasicBlocks(func)
