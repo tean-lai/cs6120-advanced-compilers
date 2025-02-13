@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from collections import deque
+from typing import Iterable
 
 from blocks import BasicBlocks
 
@@ -10,6 +11,7 @@ binop = ["add", "sub", "mul", "div", "and", "or", "eq", "lt", "gt", "le", "ge"]
 
 
 class _AbstractProp:
+
     def init():
         raise "Init not implemented"
 
@@ -19,11 +21,14 @@ class _AbstractProp:
     def transfer(b, iter):
         raise "Transfer not implemented"
 
-    def is_forward():
+    def is_forward() -> bool:
         raise "IDK"
 
+    def to_string(prop) -> str:
+        return prop
 
-class _InitVar(_AbstractProp):
+
+class InitVar(_AbstractProp):
 
     def init():
         return set()
@@ -56,7 +61,7 @@ class _InitVar(_AbstractProp):
         return str(sorted(list(prop)))
 
 
-class _ConstProp(_AbstractProp):
+class ConstProp(_AbstractProp):
 
     def init():
         return {}
@@ -136,7 +141,7 @@ class _ConstProp(_AbstractProp):
                 break
         return out_prop, changed
 
-    def is_forward(prop):
+    def is_forward():
         return True
 
     def to_string(prop):
@@ -147,7 +152,7 @@ class _ConstProp(_AbstractProp):
         return str(prop)
 
 
-class _IntAnalysis(_AbstractProp):
+class IntAnalysis(_AbstractProp):
 
     def init():
         return {}
@@ -162,11 +167,46 @@ class _IntAnalysis(_AbstractProp):
         return str(prop)
 
 
-def dataflow(blocks: BasicBlocks, property):
+class Liveness(_AbstractProp):
+
+    def init() -> set:
+        return set()
+
+    def merge(props: Iterable[set]):
+        out = set()
+        for prop in props:
+            out.update(prop)
+        return out
+
+    def transfer(b, prop: set):
+        out = prop.copy()
+        for i in range(len(b) - 1, -1, -1):
+            instr = b[i]
+            if "dest" in instr:
+                out.difference_update(instr["dest"])
+            if "args" in instr:
+                out.update(instr["args"])
+        return out, out == prop
+
+    def is_forward():
+        return False
+
+    def to_string(p):
+        if not p:
+            return "{}"
+        return str(p)
+
+
+def dataflow(blocks: BasicBlocks, property: _AbstractProp):
     l = len(blocks.blocks)
     in_prop = [None] * l
     in_prop[0] = property.init()
     out_prop = [property.init() for _ in range(l)]
+    pred, succ = blocks.pred, blocks.succ
+
+    if not property.is_forward():
+        in_prop, out_prop = out_prop, in_prop
+        pred, succ = succ, pred
 
     worklist = deque([i for i in range(l)])
     while worklist:
@@ -176,7 +216,11 @@ def dataflow(blocks: BasicBlocks, property):
         if changed:
             worklist += blocks.succ[b]
 
-    if debug_mode:
+    if not property.is_forward():
+        in_prop, out_prop = out_prop, in_prop
+        pred, succ = succ, pred
+
+    if __name__ == "__main__":
         for i in range(len(blocks.blocks)):
             b = blocks.blocks[i]
             if not b:
@@ -191,16 +235,17 @@ def dataflow(blocks: BasicBlocks, property):
 
 
 if __name__ == "__main__":
-    global debug_mode
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--debug", action="store_true")
-    args = parser.parse_args()
-    debug_mode = args.debug
+    # global debug_mode
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("-d", "--debug", action="store_true")
+    # args = parser.parse_args()
+    # debug_mode = args.debug
 
     prog = json.load(sys.stdin)
-    # init_var = _InitVar
-    init_var = _ConstProp
-    # init_var = _IntAnalysis
+    # init_var = InitVar
+    # init_var = ConstProp
+    # init_var = IntAnalysis
+    init_var = Liveness
 
     for func in prog["functions"]:
         blocks = BasicBlocks(func)
