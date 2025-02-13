@@ -182,10 +182,14 @@ class Liveness(_AbstractProp):
         out = prop.copy()
         for i in range(len(b) - 1, -1, -1):
             instr = b[i]
+            # print("instr:", instr)
+            # print("old:", out)
             if "dest" in instr:
-                out.difference_update(instr["dest"])
+                out.difference_update({instr["dest"]})
             if "args" in instr:
                 out.update(instr["args"])
+            # print("new:", out)
+            # print()
         return out, out == prop
 
     def is_forward():
