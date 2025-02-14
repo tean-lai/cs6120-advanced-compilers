@@ -50,7 +50,7 @@ class InitVar(_AbstractProp):
         for instr in b:
             if "dest" in instr:
                 set2.add(instr["dest"])
-        return set2, set1 == set2
+        return set2, set1 == set2, []
 
     def is_forward():
         return True
@@ -77,10 +77,14 @@ class ConstProp(_AbstractProp):
                         out_prop[i] = None
         return out_prop
 
-    def transfer(b, prop1: dict):
+    def transfer(b: list[dict], prop1: dict, optimize=False):
+
+        new_b = []
         out_prop = prop1.copy()
         for instr in b:
-            # print(out_prop)
+
+            if optimize:
+                new_b.append(instr.copy())
 
             if "dest" not in instr:
                 continue
@@ -105,6 +109,11 @@ class ConstProp(_AbstractProp):
                     out_prop[dest] = a
                 else:
                     raise "????"
+
+                if optimize:
+                    new_b[-1]["op"] = "const"
+                    new_b[-1].pop("args")
+                    new_b[-1]["value"] = out_prop[dest]
 
             elif op in binop:
                 a, b = instr["args"]
@@ -134,12 +143,15 @@ class ConstProp(_AbstractProp):
                 else:
                     raise "not implemented"
 
-        changed = False
-        for i in prop1:
-            if i in out_prop[i] != prop1[i]:
-                changed = True
-                break
-        return out_prop, changed
+                if optimize:
+                    new_b[-1]["op"] = "const"
+                    new_b[-1].pop("args")
+                    new_b[-1]["value"] = out_prop[dest]
+
+        return out_prop, new_b
+
+    def is_equal(prop1, prop2):
+        return prop1 == prop2
 
     def is_forward():
         return True
@@ -152,7 +164,7 @@ class ConstProp(_AbstractProp):
         return str(prop)
 
 
-class IntAnalysis(_AbstractProp):
+class Interval(_AbstractProp):
 
     def init():
         return {}
@@ -167,6 +179,21 @@ class IntAnalysis(_AbstractProp):
         return str(prop)
 
 
+class Reaching(_AbstractProp):
+
+    def init():
+        return {}
+
+    def merge(b, props):
+        pass
+
+    def transfer(b, prop):
+        pass
+
+    def is_forward(b, prop):
+        return True
+
+
 class Liveness(_AbstractProp):
 
     def init() -> set:
@@ -174,26 +201,46 @@ class Liveness(_AbstractProp):
 
     def merge(props: Iterable[set]):
         out = set()
+        props = list(props)
         for prop in props:
+            assert prop is not None, props
             out.update(prop)
         return out
 
-    def transfer(b, prop: set):
-        out = prop.copy()
+    def transfer(b: list, prop: set, optimize=False):
+        if optimize:
+            keep = [True] * len(b)
+
+        in_prop = prop.copy()
         for i in range(len(b) - 1, -1, -1):
+
             instr = b[i]
-            # print("instr:", instr)
-            # print("old:", out)
+
             if "dest" in instr:
-                out.difference_update({instr["dest"]})
+                dest = instr["dest"]
+                if dest in in_prop:
+                    in_prop.remove(dest)
+                elif optimize:
+                    keep[i] = False
+                    continue
+
             if "args" in instr:
-                out.update(instr["args"])
-            # print("new:", out)
-            # print()
-        return out, out == prop
+                for arg in instr["args"]:
+                    in_prop.add(arg)
+
+                # in_prop.update(instr["args"])
+
+        if optimize:
+            new_b = [b[i] for i in range(len(b)) if keep[i]]
+        else:
+            new_b = []
+        return in_prop, new_b
 
     def is_forward():
         return False
+
+    def is_equal(prop1, prop2):
+        return prop1 == prop2
 
     def to_string(p):
         if not p:
@@ -201,7 +248,22 @@ class Liveness(_AbstractProp):
         return str(p)
 
 
-def dataflow(blocks: BasicBlocks, property: _AbstractProp):
+def df_interval(blocks):
+    blocks, pred, succ = blocks.blocks, blocks.pred, blocks.succ
+    l = len(blocks)
+    prop = {}
+    for i in succ:
+        for j in succ[i]:
+            prop[(i, j)] = Interval.init()
+    pred, succ = blocks.pred, blocks.succ
+
+    worklist = deque([i for i in range(l)])
+    while worklist:
+        b = worklist.popleft()
+        in_prop = Interval.merge(prop)
+
+
+def dataflow(blocks: BasicBlocks, property: _AbstractProp, optimize=False):
     l = len(blocks.blocks)
     in_prop = [None] * l
     in_prop[0] = property.init()
@@ -209,22 +271,31 @@ def dataflow(blocks: BasicBlocks, property: _AbstractProp):
     pred, succ = blocks.pred, blocks.succ
 
     if not property.is_forward():
-        in_prop, out_prop = out_prop, in_prop
         pred, succ = succ, pred
 
-    worklist = deque([i for i in range(l)])
+    worklist = deque([i for i in range(l - 1, -1, -1)])
     while worklist:
-        b = worklist.popleft()
-        in_prop[b] = property.merge(out_prop[p] for p in blocks.pred[b])
-        out_prop[b], changed = property.transfer(blocks.blocks[b], in_prop[b])
-        if changed:
-            worklist += blocks.succ[b]
+        i = worklist.popleft()
+        in_prop[i] = property.merge(out_prop[j] for j in pred[i])
+        new_out_prop, new_b = property.transfer(
+            blocks.blocks[i], in_prop[i], optimize=optimize
+        )
+
+        if not property.is_equal(out_prop[i], new_out_prop):
+            worklist += succ[i]
+            out_prop[i] = new_out_prop
+
+    if optimize:
+        for i in range(l):
+            _, new_b = property.transfer(blocks.blocks[i], in_prop[i], optimize=True)
+            blocks.blocks[i] = new_b
+            if debug_mode:
+                print(new_b)
 
     if not property.is_forward():
         in_prop, out_prop = out_prop, in_prop
-        pred, succ = succ, pred
 
-    if __name__ == "__main__":
+    if debug_mode:
         for i in range(len(blocks.blocks)):
             b = blocks.blocks[i]
             if not b:
@@ -239,22 +310,30 @@ def dataflow(blocks: BasicBlocks, property: _AbstractProp):
 
 
 if __name__ == "__main__":
-    # global debug_mode
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("-d", "--debug", action="store_true")
-    # args = parser.parse_args()
-    # debug_mode = args.debug
+    global debug_mode
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--debug", action="store_true")
+    args = parser.parse_args()
+    debug_mode = args.debug
 
     prog = json.load(sys.stdin)
-    # init_var = InitVar
-    # init_var = ConstProp
-    # init_var = IntAnalysis
-    init_var = Liveness
 
-    for func in prog["functions"]:
+    optimize = True
+
+    for i, func in enumerate(prog["functions"]):
         blocks = BasicBlocks(func)
-        print(f"func {func["name"]}:")
-        dataflow(blocks, init_var)
-        print()
+        if debug_mode:
+            print(f"func {func["name"]}:")
+        # for j in blocks.blocks:
+        #     print(j)
+        # print()
+        dataflow(blocks, ConstProp, optimize=optimize)
+        # dataflow(blocks, Liveness, optimize=False)
+        if debug_mode:
+            print()
 
-    # print(json.dumps(prog))
+        if optimize:
+            prog["functions"][i] = blocks.to_func()
+
+    if not debug_mode:
+        print(json.dumps(prog))
