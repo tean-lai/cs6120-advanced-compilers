@@ -29,6 +29,7 @@ class _AbstractProp:
 
 
 class InitVar(_AbstractProp):
+    """MIGHT BE BROKEN AFTER REFACTOR"""
 
     def init():
         return set()
@@ -220,8 +221,9 @@ class Liveness(_AbstractProp):
                 dest = instr["dest"]
                 if dest in in_prop:
                     in_prop.remove(dest)
-                elif optimize:
-                    keep[i] = False
+                else:
+                    if optimize:
+                        keep[i] = False
                     continue
 
             if "args" in instr:
@@ -289,8 +291,8 @@ def dataflow(blocks: BasicBlocks, property: _AbstractProp, optimize=False):
         for i in range(l):
             _, new_b = property.transfer(blocks.blocks[i], in_prop[i], optimize=True)
             blocks.blocks[i] = new_b
-            if debug_mode:
-                print(new_b)
+            # if debug_mode:
+            #     print(new_b)
 
     if not property.is_forward():
         in_prop, out_prop = out_prop, in_prop
@@ -327,9 +329,13 @@ if __name__ == "__main__":
         # for j in blocks.blocks:
         #     print(j)
         # print()
-        dataflow(blocks, ConstProp, optimize=optimize)
-        # dataflow(blocks, Liveness, optimize=False)
+        dataflow(blocks, ConstProp, optimize=True)
+        dataflow(blocks, Liveness, optimize=True)
+
+        # print(blocks.debug_print())
         if debug_mode:
+            print("pred:", blocks.pred)
+            print("succ:", blocks.succ)
             print()
 
         if optimize:

@@ -54,11 +54,15 @@ class BasicBlocks:
 
         for i in range(len(self.succ)):
             new = set()
+
+            last = self.blocks[i][-1]
+            if last.get("op", None) not in ["jmp", "br"] and i < len(self.succ) - 1:
+                new.add(i + 1)
+                self.pred[i + 1].add(i)
+
             for j in self.succ[i]:
                 k = self._label_to_idx[j]
                 new.add(k)
-                if k not in self.pred:
-                    self.pred[k] = set()
                 self.pred[k].add(i)
             self.succ[i] = new
 
