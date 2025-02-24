@@ -7,8 +7,10 @@ The structure of this repo is a little messy since I switch between using OCaml 
 ## Task 2
 I implemented basic block and conflow graph construction in OCaml.
 
-I also implement basic code transformations.
+I also implement some basic code transformations.
 
 ## Task 3
-I implemented some trivial dead code elimnation as well as local value numbering in Python.
+I used Python for this one. I implemented some trivial global dead code elimination. Using local value numbering, I implied common subexpression elimination, constant propagation, and constant folding.
 
+## Task 4
+I implemented a general dataflow analysis engine in Python, that supports liveness analysis, constant folding, variable declaration detection. It can modify code if necessary, eliminating dead code and folding constants. 
