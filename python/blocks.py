@@ -54,7 +54,9 @@ class BasicBlocks:
 
     def __init__(self, func):
         self._func = deepcopy(func)
-        self.fun_args = [i["name"] for i in func["args"]]
+        self.fun_args = []
+        if "args" in func:
+            self.fun_args = [i["name"] for i in func["args"]]
         self.instrs = self._func["instrs"]
         self.blocks = []
         self.succ = []
@@ -184,6 +186,7 @@ class BasicBlocks:
             last = self.blocks[i][-1]
             if (
                 last.get("op", None) not in ["jmp", "br", "ret"]
+                # last.get("op", None) not in ["jmp", "br"]
                 and i < len(self.succ) - 1
             ):
                 new.add(i + 1)
@@ -222,17 +225,33 @@ class BasicBlocks:
         new_func["instrs"] = new_instrs
         return new_func
 
+    def empty_inaccessible(self):
+        for i in range(self.n):
+            if not self.pred[i]:
+                self.blocks[i] = []
+
     def to_ssa(self):
         count = {}
 
         dfs = [self.compute_dom_frontier(i) for i in range(self.n)]
-        # gets = [set() for _ in range(self.n)]  # gets[i] is a set of variables we need get "get" at block i
         sets = [{} for _ in range(self.n)]  # sets[i]["name"] = "name.3" means we need to set "name" name.3
         phi_nodes = [{} for _ in range(self.n)]
-        # in_df = [False] * self.n
+
+        all_vars = {}
+        for b in self.blocks:
+            for instr in b:
+                if "dest" in instr:
+                    assert "type" in instr, instr
+                    if instr["dest"] not in self.fun_args:
+                        all_vars[instr["dest"]] = instr["type"]
+
+        # prepend = [{"dest": "undef", "op": "undef"}
+        prepend = []
+        for var in all_vars:
+            prepend.append({"dest": var, "op": "undef", "type": all_vars[var]})
+
 
         for i, b in enumerate(self.blocks):
-
             sets = {}
             for instr in b:
                 if "dest" not in instr:
@@ -241,47 +260,69 @@ class BasicBlocks:
                 dest = instr["dest"]
                 count[dest] = count.get(dest, -1) + 1
                 instr["dest"] += "." + str(count[dest])
-                sets[dest] = instr["dest"]
+                sets[dest] = instr
 
             for j in dfs[i]:
-                # in_df[j] = True
                 for dest in sets:
-                    if dest not in phi_nodes[i]:
+                    if dest not in phi_nodes[j]:
                         count[dest] = count.get(dest, -1) + 1
-                        phi_nodes[i][dest] = { "dest": dest + "." + str(count[dest]), "args": [] }
-                    phi_nodes[i][dest]["args"].append(sets[dest])
-                    b.append({"op": "set", "args": [phi_nodes[i][dest]["dest"], sets[dest]]})
+                        phi_nodes[j][dest] = { "dest": dest + "." + str(count[dest]), "args": [] }
+                    phi_nodes[j][dest]["args"].append(sets[dest]["dest"])
+                    if "type" in sets[dest]:
+                        phi_nodes[j][dest]["type"] = sets[dest]["type"]
+
+                    set_instr = {"op": "set", "args": [phi_nodes[j][dest]["dest"], sets[dest]["dest"]]}
+                    if b and b[-1].get("op", None) in ["br", "jmp"]:
+                        b.insert(-1, set_instr)
+
+                    else:
+                        b.append(set_instr)
+
+
+        for i in range(self.n):
+            for dest in phi_nodes[i]:
+                prepend.append({"op": "set", "args": [phi_nodes[i][dest]["dest"], dest]})
+
+
 
         for i, b in enumerate(self.blocks):
             get_instrs = []
-            defined = set()
+            # defined = set()
             for dest in phi_nodes[i]:
-                get_dest = phi_nodes[i][dest]["dest"]
-                if get_dest not in defined:
-                    get_instrs.append({"op": "set", "args": [get_dest, "undefundefundefundefundef"]})
-                get_instrs.append({"dest": get_dest, "op": "get"})
-                defined.add(get_dest)
-            for instr in b:
-                if "dest" in instr:
-                    defined.add(instr["dest"])
+                get_dest = phi_nodes[i][dest]
+                # if get_dest not in defined:
+        #             get_instrs.append({"op": "set", "args": [get_dest, "undefundefundefundefundef"]})
+                get_instr = {"dest": get_dest["dest"], "op": "get"}
+                if "type" in get_dest:
+                    get_instr["type"] = get_dest["type"]
+                get_instrs.append(get_instr)
+        #         defined.add(get_dest)
+        #     for instr in b:
+        #         if "dest" in instr:
+        #             defined.add(instr["dest"])
 
-            self.blocks[i] = get_instrs + self.blocks[i]
-            self.blocks[i].insert(0, {"dest": "undefundefundefundefundef", "op": "undef"})
+            if self.blocks[i]:
+                if "label" in self.blocks[i][0]:
+                    self.blocks[i] = [self.blocks[i][0]] + get_instrs + self.blocks[i][1:]
+                else:
+                    self.blocks[i] = get_instrs + self.blocks[i]
+        #     self.blocks[i].insert(0, {"dest": "undefundefundefundefundef", "op": "undef"})
 
-        if debug_mode:
-            print(phi_nodes)
-            for i in range(self.n):
-                for j in phi_nodes[i]:
-                    print(phi_nodes[i][j]["dest"])
-                    # print(j, j["dest"])
+        # if debug_mode:
+        #     print(phi_nodes)
+        #     for i in range(self.n):
+        #         for j in phi_nodes[i]:
+        #             print(phi_nodes[i][j]["dest"])
+        #             # print(j, j["dest"])
 
 
         def find(arg, var_stack):
             for d in reversed(var_stack):
                 # print(d)
+                # print("d:", d, "arg:", arg)
                 if arg in d:
                     return d[arg]
-            assert False, f"{arg} not found in var_stack"
+            assert False, f"{arg} not found in {var_stack}"
             # return arg
 
 
@@ -289,16 +330,17 @@ class BasicBlocks:
             for i in range(len(s) - 1, -1, -1):
                 if s[i] == ".":
                     return s[:i]
-            if s in ["undefundefundefundefundef"] + [self.fun_args]:
-                return s
-            assert False, f"failed trim on {s}"
+            # if s in ["undefundefundefundefundef"] + [self.fun_args]:
+            #     return s
+            assert s in self.fun_args, f"{s}, {self.fun_args}"
+            return s
+            # assert False, f"failed trim on {s}"
 
         visited = set()
-        def rename_args(dt, var_stack=None):
-            i = dt[0]
-
+        def rename_args(i, var_stack=None):
             if i in visited:
                 return
+            visited.add(i)
 
             if var_stack is None:
                 var_stack = []
@@ -307,32 +349,41 @@ class BasicBlocks:
                 print("var_stack: ", var_stack)
 
             var_stack.append({})
+            # print(f"\nBlock {i}: ")
             for instr in self.blocks[i]:
+                # print("instr:", instr)
+                # print("var_stack:", var_stack)
                 if "args" in instr:
                     if instr.get("op", None) == "set":
                         continue
                     instr["args"] = [find(arg, var_stack) for arg in instr["args"]]
-                        # for instr in self.blocks[i]:
-                        #     print(instr)
-                        # assert False
                 if "dest" in instr:
                     var_stack[-1][trim(instr["dest"])] = instr["dest"]
-            if debug_mode:
-                print("var_stack: ", var_stack)
+        #     if debug_mode:
+        #         print("var_stack: ", var_stack)
 
-            for child in dt[1]:
+            for child in self.succ[i]:
                 rename_args(child, var_stack)
             var_stack.pop()
 
-        # print(self._func["args"])
-        var_stack = [None]
-        # print(self.fun_args)
-        var_stack[-1] = {i: i for i in self.fun_args}
+        # # print(self._func["args"])
+        # var_stack = [None]
+        # # print(self.fun_args)
+        # var_stack[-1] = {i: i for i in self.fun_args}
+        # print(f"fun_args: {self.fun_args}")
+        var_stack = [{i: i for i in self.fun_args}]
 
         # for i in self._func["args"]:
-        #     var_stack[-1][i["name"]] = i["name"]
-        # print(var_stack)
-        rename_args(self.dom_tree, var_stack)
+        # #     var_stack[-1][i["name"]] = i["name"]
+        # # print(var_stack)
+        for i in range(self.n):
+            rename_args(i, var_stack)
+
+        self.blocks[0] = prepend + self.blocks[0]
+        # print(self.dom_tree, visited)
+        # for i in range(self.n):
+        #     if i not in visited:
+        #         assert False, f"block {i} not visited"
 
 
     def from_ssa(self):
@@ -461,6 +512,6 @@ if __name__ == "__main__":
         # bb.pp_dom_tree()
         print(bb.dom_tree)
         dfs = [bb.compute_dom_frontier(i) for i in range(bb.n)]
-        print(dfs)
+        print("dfs:", dfs)
         print()
         # bb.debug_print()
