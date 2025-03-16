@@ -258,18 +258,13 @@ class BasicBlocks:
         return self._to_ssa2()
 
     def _to_ssa2(self):
-        # unreachable = self.get_unreachable_blocks()
-        # self.del_unreachable_blocks()
-
-
-        # print(f"deleted {len(unreachable)}")
 
         """
         FIRST PASS. Find blocks where each var is assigned
         """
         defs = {}  # blocks where v is assigned
-        # for v in self.fun_args:
-        #     defs[v] = [0]
+        for v in self.fun_args:
+            defs[v] = [0]
         for i, b in enumerate(self.blocks):
             for instr in b:
                 if "dest" not in instr:
@@ -345,9 +340,9 @@ class BasicBlocks:
                         assert False
                     set_instrs.append({"op": "set", "args": [phi_nodes[s][p], stack[p]]})
             if self.blocks[b][-1].get("op", None) in ["jmp", "br"]:
-                self.blocks[b].extend(set_instrs)
-            else:
                 self.blocks[b] = self.blocks[b][:-1] + set_instrs + [self.blocks[b][-1]]
+            else:
+                self.blocks[b].extend(set_instrs)
 
             for dt2 in dt[1]:
                 rename(dt2, stack)
@@ -358,10 +353,12 @@ class BasicBlocks:
         ADD A BUNCH OF UNDEFS
         """
         undef_instrs = []
+        undefed = set()
         for i in range(self.n):
             for v in phi_nodes[i]:
-                if v not in self.fun_args:
+                if v not in self.fun_args and v not in undefed:
                     undef_instrs.append({"dest": v, "op": "undef"})
+                    undefed.add(v)
                 undef_instrs.append({"op": "set", "args": [phi_nodes[i][v], v]})
         self.blocks[0] = undef_instrs + self.blocks[0]
 
