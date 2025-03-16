@@ -30,7 +30,7 @@ def _gen_reverse_postorder(adj, i):
 
     path = []
     for i in range(len(adj)):
-        if i not in visited:
+        if not visited[i]:
             path.extend(dfs(i, []))
 
     return reversed(path)
@@ -69,45 +69,33 @@ class BasicBlocks:
         # self.dom_frontier = self._gen_dom_frontier()
         self.dom_tree = self._gen_dom_tree()
 
-    # def _gen_dom_graph(self):
-    #     succ, pred = self.succ, self.pred
-    #     assert len(succ) == len(pred)
-    #     dom = [{i} for i in range(self.n)]
-    #     changing = True
-    #     while changing:
-    #         for v in range(self.n):
-    #             if v == 0:
-    #                 continue
-    #             pred_dom = [dom[p] for p in pred[v]]
-    #             if pred_dom:
-    #                 update = pred_dom[0].copy()
-    #                 for i in range(1, len(pred_dom))
-
-
     def _gen_dom_graph(self):
         succ, pred = self.succ, self.pred
         assert len(succ) == len(pred)
-        dom = [{i} for i in range(self.n)]
+        dom = [{i for i in range(self.n)} for i in range(self.n)]
+        dom[0] = {0}
         changing = True
         while changing:
             changing = False
-            for v in _gen_reverse_postorder(succ, 0):
+            # for v in _gen_reverse_postorder(succ, 0):
+            for v in range(self.n):
                 if v == 0:
                     continue
 
-                pred_dom = [dom[p] for p in pred[v]]
-                if pred_dom:
-                    update = pred_dom[0].copy()
-                    for i in range(1, len(pred_dom)):
-                        update.intersection_update(pred_dom[i])
+                if pred[v]:
+                    update = set.intersection(*(dom[p] for p in pred[v]))
                 else:
                     update = set()
+                update.add(v)
 
+                if update != dom[v]:
+                    dom[v] = update
+                    changing = True
 
-                for v2 in update:
-                    if v2 not in dom[v]:
-                        changing = True
-                        dom[v].add(v2)
+                # for v2 in update
+                #     if v2 not in dom[v]:
+                #         changing = True
+                #         dom[v].add(v2)
         return dom
 
     def _is_strictly_dom(self, a, b):
@@ -115,16 +103,19 @@ class BasicBlocks:
 
     def _is_imm_dom(self, a, b):
         for c in range(self.n):
-            if self._is_strictly_dom(c, b) and self._is_strictly_dom(a, c):
+            if self._is_strictly_dom(a, c) and self._is_strictly_dom(c, b):
                 return False
         return self._is_strictly_dom(a, b)
 
     def _gen_dom_tree(self):
-
         edges = set()
+        visited = set()
 
         def dfs(i):
             children = []
+            if i in visited:
+                assert False, "repeating"
+            visited.add(i)
             for j in range(self.n):
                 if self._is_imm_dom(i, j):
                     edges.add((i, j))
@@ -225,12 +216,159 @@ class BasicBlocks:
         new_func["instrs"] = new_instrs
         return new_func
 
-    def empty_inaccessible(self):
-        for i in range(self.n):
+    def get_unreachable_blocks(self):
+        unreachable_blocks = []
+        for i in range(1, self.n):
             if not self.pred[i]:
-                self.blocks[i] = []
+                unreachable_blocks.append(i)
+        return unreachable_blocks
+
+    def del_unreachable_blocks(self):
+        unreachable_blocks = self.get_unreachable_blocks()
+
+        for i in unreachable_blocks:
+            new_instrs = []
+            for instr in self.blocks[i]:
+                if "label" in instr:
+                    new_instrs.append(instr)
+            self.blocks[i] = new_instrs
+
+    def assert_reachable_in_dt(self):
+        unreachable = self.get_unreachable_blocks()
+
+        visited = set()
+        def dfs(dt):
+            if dt[0] in visited:
+                return
+
+            visited.add(dt[0])
+            for j in dt[1]:
+                dfs(j)
+        dfs(self.dom_tree)
+
+        for i in range(self.n):
+            if i not in unreachable:
+                assert i in visited, f"block {i} was not in dt"
+            # else:
+            #     print("succ:", self.pred)
+            #     print("dom_tree:", self.dom_tree)
+            #     assert i not in visited, f"block {i} is unreachable but is in dt"
 
     def to_ssa(self):
+        return self._to_ssa2()
+
+    def _to_ssa2(self):
+        # unreachable = self.get_unreachable_blocks()
+        # self.del_unreachable_blocks()
+
+
+        # print(f"deleted {len(unreachable)}")
+
+        """
+        FIRST PASS. Find blocks where each var is assigned
+        """
+        defs = {}  # blocks where v is assigned
+        # for v in self.fun_args:
+        #     defs[v] = [0]
+        for i, b in enumerate(self.blocks):
+            for instr in b:
+                if "dest" not in instr:
+                    continue
+                dest = instr["dest"]
+                if dest not in defs:
+                    defs[dest] = []
+
+                if i not in defs[dest]:
+                    defs[dest].append(i)
+
+        """
+        SECOND PASS: INSERT PHI NODES
+        """
+        df = [self.compute_dom_frontier(i) for i in range(self.n)]
+        phi_nodes = [{} for _ in range(self.n)]
+
+        counts = {}
+        for v in defs:
+            for d in defs[v]:
+                for b in df[d]:
+                    if v not in phi_nodes[b]:
+                        counts[v] = 1 + counts.get(v, -1)
+                        phi_nodes[b][v] = v + "." + str(counts[v])
+                    if b not in defs[v]:
+                        defs[v].append(b)
+
+        """
+        THIRD PASS: rename
+        """
+        visited = set()
+        def rename(dt, stack):
+            b = dt[0]
+            if b in visited:
+                assert False, "revisiting b???"
+            visited.add(b)
+
+            stack = stack.copy()
+
+            get_instrs = []
+            for v in phi_nodes[b]:
+                get_instrs.append({"dest": phi_nodes[b][v], "op": "get"})
+                stack[v] = phi_nodes[b][v]
+            if "label" in self.blocks[b][0]:
+                self.blocks[b] = [self.blocks[b][0]] +  get_instrs + self.blocks[b][1:]
+            else:
+                self.blocks[b] = get_instrs + self.blocks[b]
+
+            for instr in self.blocks[b]:
+                if instr.get("op", None) == "get":
+                    continue
+
+                if "args" in instr:
+                    # print("stack:", stack)
+                    for v in instr["args"]:
+                        if v not in stack:
+                            print(f"FAILED: instr = {instr}, v = {v}")
+                            assert False
+                    instr["args"] = [stack[v] for v in instr["args"]]
+                if "dest" in instr:
+                    dest = instr["dest"]
+                    counts[dest] = counts.get(dest, -1) + 1
+                    instr["dest"] = f"{dest}.{counts[dest]}"
+                    stack[dest] = instr["dest"]
+
+            set_instrs = []
+            for s in self.succ[b]:
+                for p in phi_nodes[s]:
+                    if b not in defs[p]:
+                        continue
+                    if p not in stack:
+                        print(f"FAILED: stack = {stack}, p = {p}, s = {s}, phi_nodes[{s}] = {phi_nodes[s]}")
+                        assert False
+                    set_instrs.append({"op": "set", "args": [phi_nodes[s][p], stack[p]]})
+            if self.blocks[b][-1].get("op", None) in ["jmp", "br"]:
+                self.blocks[b].extend(set_instrs)
+            else:
+                self.blocks[b] = self.blocks[b][:-1] + set_instrs + [self.blocks[b][-1]]
+
+            for dt2 in dt[1]:
+                rename(dt2, stack)
+
+        rename(self.dom_tree, {v: v for v in self.fun_args})
+
+        """
+        ADD A BUNCH OF UNDEFS
+        """
+        undef_instrs = []
+        for i in range(self.n):
+            for v in phi_nodes[i]:
+                if v not in self.fun_args:
+                    undef_instrs.append({"dest": v, "op": "undef"})
+                undef_instrs.append({"op": "set", "args": [phi_nodes[i][v], v]})
+        self.blocks[0] = undef_instrs + self.blocks[0]
+
+
+
+
+    def _to_ssa1(self):
         count = {}
 
         dfs = [self.compute_dom_frontier(i) for i in range(self.n)]
@@ -282,7 +420,6 @@ class BasicBlocks:
         for i in range(self.n):
             for dest in phi_nodes[i]:
                 prepend.append({"op": "set", "args": [phi_nodes[i][dest]["dest"], dest]})
-
 
 
         for i, b in enumerate(self.blocks):
