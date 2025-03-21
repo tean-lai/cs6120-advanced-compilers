@@ -15,6 +15,7 @@ def _get_used_labels(instrs: list[dict]):
 def _gen_reverse_postorder(adj, i):
 
     visited = [False] * len(adj)
+
     def dfs(i, path) -> list:
         if visited[i]:
             return path
@@ -237,6 +238,7 @@ class BasicBlocks:
         unreachable = self.get_unreachable_blocks()
 
         visited = set()
+
         def dfs(dt):
             if dt[0] in visited:
                 return
@@ -244,6 +246,7 @@ class BasicBlocks:
             visited.add(dt[0])
             for j in dt[1]:
                 dfs(j)
+
         dfs(self.dom_tree)
 
         for i in range(self.n):
@@ -258,7 +261,6 @@ class BasicBlocks:
         return self._to_ssa2()
 
     def _to_ssa2(self):
-
         """
         FIRST PASS. Find blocks where each var is assigned
         """
@@ -296,6 +298,7 @@ class BasicBlocks:
         THIRD PASS: rename
         """
         visited = set()
+
         def rename(dt, stack):
             b = dt[0]
             if b in visited:
@@ -309,7 +312,7 @@ class BasicBlocks:
                 get_instrs.append({"dest": phi_nodes[b][v], "op": "get"})
                 stack[v] = phi_nodes[b][v]
             if "label" in self.blocks[b][0]:
-                self.blocks[b] = [self.blocks[b][0]] +  get_instrs + self.blocks[b][1:]
+                self.blocks[b] = [self.blocks[b][0]] + get_instrs + self.blocks[b][1:]
             else:
                 self.blocks[b] = get_instrs + self.blocks[b]
 
@@ -336,9 +339,13 @@ class BasicBlocks:
                     if b not in defs[p]:
                         continue
                     if p not in stack:
-                        print(f"FAILED: stack = {stack}, p = {p}, s = {s}, phi_nodes[{s}] = {phi_nodes[s]}")
+                        print(
+                            f"FAILED: stack = {stack}, p = {p}, s = {s}, phi_nodes[{s}] = {phi_nodes[s]}"
+                        )
                         assert False
-                    set_instrs.append({"op": "set", "args": [phi_nodes[s][p], stack[p]]})
+                    set_instrs.append(
+                        {"op": "set", "args": [phi_nodes[s][p], stack[p]]}
+                    )
             if self.blocks[b][-1].get("op", None) in ["jmp", "br"]:
                 self.blocks[b] = self.blocks[b][:-1] + set_instrs + [self.blocks[b][-1]]
             else:
@@ -362,14 +369,13 @@ class BasicBlocks:
                 undef_instrs.append({"op": "set", "args": [phi_nodes[i][v], v]})
         self.blocks[0] = undef_instrs + self.blocks[0]
 
-
-
-
     def _to_ssa1(self):
         count = {}
 
         dfs = [self.compute_dom_frontier(i) for i in range(self.n)]
-        sets = [{} for _ in range(self.n)]  # sets[i]["name"] = "name.3" means we need to set "name" name.3
+        sets = [
+            {} for _ in range(self.n)
+        ]  # sets[i]["name"] = "name.3" means we need to set "name" name.3
         phi_nodes = [{} for _ in range(self.n)]
 
         all_vars = {}
@@ -384,7 +390,6 @@ class BasicBlocks:
         prepend = []
         for var in all_vars:
             prepend.append({"dest": var, "op": "undef", "type": all_vars[var]})
-
 
         for i, b in enumerate(self.blocks):
             sets = {}
@@ -401,23 +406,29 @@ class BasicBlocks:
                 for dest in sets:
                     if dest not in phi_nodes[j]:
                         count[dest] = count.get(dest, -1) + 1
-                        phi_nodes[j][dest] = { "dest": dest + "." + str(count[dest]), "args": [] }
+                        phi_nodes[j][dest] = {
+                            "dest": dest + "." + str(count[dest]),
+                            "args": [],
+                        }
                     phi_nodes[j][dest]["args"].append(sets[dest]["dest"])
                     if "type" in sets[dest]:
                         phi_nodes[j][dest]["type"] = sets[dest]["type"]
 
-                    set_instr = {"op": "set", "args": [phi_nodes[j][dest]["dest"], sets[dest]["dest"]]}
+                    set_instr = {
+                        "op": "set",
+                        "args": [phi_nodes[j][dest]["dest"], sets[dest]["dest"]],
+                    }
                     if b and b[-1].get("op", None) in ["br", "jmp"]:
                         b.insert(-1, set_instr)
 
                     else:
                         b.append(set_instr)
 
-
         for i in range(self.n):
             for dest in phi_nodes[i]:
-                prepend.append({"op": "set", "args": [phi_nodes[i][dest]["dest"], dest]})
-
+                prepend.append(
+                    {"op": "set", "args": [phi_nodes[i][dest]["dest"], dest]}
+                )
 
         for i, b in enumerate(self.blocks):
             get_instrs = []
@@ -425,19 +436,21 @@ class BasicBlocks:
             for dest in phi_nodes[i]:
                 get_dest = phi_nodes[i][dest]
                 # if get_dest not in defined:
-        #             get_instrs.append({"op": "set", "args": [get_dest, "undefundefundefundefundef"]})
+                #             get_instrs.append({"op": "set", "args": [get_dest, "undefundefundefundefundef"]})
                 get_instr = {"dest": get_dest["dest"], "op": "get"}
                 if "type" in get_dest:
                     get_instr["type"] = get_dest["type"]
                 get_instrs.append(get_instr)
-        #         defined.add(get_dest)
-        #     for instr in b:
-        #         if "dest" in instr:
-        #             defined.add(instr["dest"])
+            #         defined.add(get_dest)
+            #     for instr in b:
+            #         if "dest" in instr:
+            #             defined.add(instr["dest"])
 
             if self.blocks[i]:
                 if "label" in self.blocks[i][0]:
-                    self.blocks[i] = [self.blocks[i][0]] + get_instrs + self.blocks[i][1:]
+                    self.blocks[i] = (
+                        [self.blocks[i][0]] + get_instrs + self.blocks[i][1:]
+                    )
                 else:
                     self.blocks[i] = get_instrs + self.blocks[i]
         #     self.blocks[i].insert(0, {"dest": "undefundefundefundefundef", "op": "undef"})
@@ -449,7 +462,6 @@ class BasicBlocks:
         #             print(phi_nodes[i][j]["dest"])
         #             # print(j, j["dest"])
 
-
         def find(arg, var_stack):
             for d in reversed(var_stack):
                 # print(d)
@@ -458,7 +470,6 @@ class BasicBlocks:
                     return d[arg]
             assert False, f"{arg} not found in {var_stack}"
             # return arg
-
 
         def trim(s):
             for i in range(len(s) - 1, -1, -1):
@@ -471,6 +482,7 @@ class BasicBlocks:
             # assert False, f"failed trim on {s}"
 
         visited = set()
+
         def rename_args(i, var_stack=None):
             if i in visited:
                 return
@@ -493,8 +505,8 @@ class BasicBlocks:
                     instr["args"] = [find(arg, var_stack) for arg in instr["args"]]
                 if "dest" in instr:
                     var_stack[-1][trim(instr["dest"])] = instr["dest"]
-        #     if debug_mode:
-        #         print("var_stack: ", var_stack)
+            #     if debug_mode:
+            #         print("var_stack: ", var_stack)
 
             for child in self.succ[i]:
                 rename_args(child, var_stack)
@@ -519,7 +531,6 @@ class BasicBlocks:
         #     if i not in visited:
         #         assert False, f"block {i} not visited"
 
-
     def from_ssa(self):
         for i, b in enumerate(self.blocks):
             self.blocks[i] = [instr for instr in b if instr.get("op", None) != "get"]
@@ -535,12 +546,13 @@ class BasicBlocks:
                     instr["dest"] = instr["args"][0]
                     instr["args"] = [instr["args"][1]]
 
-
     def to_ssa_archive(self):
         count = {}
         # gets[3]["name"] = "name.v1" means
 
-        dfs = [self.compute_dom_frontier(i) for i in range(self.n)]  # dominance frontiers
+        dfs = [
+            self.compute_dom_frontier(i) for i in range(self.n)
+        ]  # dominance frontiers
 
         for i, b in enumerate(self.blocks):
             df = dfs[i]

@@ -8,9 +8,10 @@ from blocks import BasicBlocks
 
 uop = ["not", "id"]
 binop = ["add", "sub", "mul", "div", "and", "or", "eq", "lt", "gt", "le", "ge"]
+debug_mode = False
 
 
-class _AbstractProp:
+class AbstractProp:
 
     def init():
         raise "Init not implemented"
@@ -28,7 +29,7 @@ class _AbstractProp:
         return prop
 
 
-class InitVar(_AbstractProp):
+class InitVar(AbstractProp):
     """MIGHT BE BROKEN AFTER REFACTOR"""
 
     def init():
@@ -62,7 +63,7 @@ class InitVar(_AbstractProp):
         return str(sorted(list(prop)))
 
 
-class ConstProp(_AbstractProp):
+class ConstProp(AbstractProp):
 
     def init():
         return {}
@@ -165,7 +166,7 @@ class ConstProp(_AbstractProp):
         return str(prop)
 
 
-class Interval(_AbstractProp):
+class Interval(AbstractProp):
 
     def init():
         return {}
@@ -180,22 +181,33 @@ class Interval(_AbstractProp):
         return str(prop)
 
 
-class Reaching(_AbstractProp):
+class Reaching(AbstractProp):
 
     def init():
-        return {}
+        return set()
 
-    def merge(b, props):
-        pass
+    def merge(props):
+        out_prop = set()
+        for prop in props:
+            out_prop.update(prop)
+        return out_prop
 
-    def transfer(b, prop):
-        pass
+    def transfer(b, in_prop, optimize=False):
+        out_prop = in_prop.copy()
+        for instr in b:
+            if "dest" in instr:
+                dest = instr["dest"]
+                out_prop.add(dest)
+        return out_prop, b
 
-    def is_forward(b, prop):
+    def is_equal(prop1, prop2):
+        return prop1 == prop2
+
+    def is_forward():
         return True
 
 
-class Liveness(_AbstractProp):
+class Liveness(AbstractProp):
 
     def init() -> set:
         return set()
@@ -265,7 +277,7 @@ def df_interval(blocks):
         in_prop = Interval.merge(prop)
 
 
-def dataflow(blocks: BasicBlocks, property: _AbstractProp, optimize=False):
+def dataflow(blocks: BasicBlocks, property: AbstractProp, optimize=False):
     l = len(blocks.blocks)
     in_prop = [None] * l
     in_prop[0] = property.init()
@@ -302,17 +314,21 @@ def dataflow(blocks: BasicBlocks, property: _AbstractProp, optimize=False):
             b = blocks.blocks[i]
             if not b:
                 continue
-            if "label" in b[0]:
-                print(f"  .{b[0]["label"]}:")
+            # if "label" in b[0]:
+            #     print(f"  .{b[0]["label"]}:")
 
-            print(f"    in:  {property.to_string(in_prop[i])}")
-            print(f"    out: {property.to_string(out_prop[i])}")
+            # print(f"    in:  {property.to_string(in_prop[i])}")
+            # print(f"    out: {property.to_string(out_prop[i])}")
 
     return in_prop, out_prop
 
 
+def dataflow_dce(bb):
+    dataflow(bb, ConstProp, optimize=True)
+    dataflow(bb, Liveness, optimize=True)
+
+
 if __name__ == "__main__":
-    global debug_mode
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
@@ -324,11 +340,12 @@ if __name__ == "__main__":
 
     for i, func in enumerate(prog["functions"]):
         blocks = BasicBlocks(func)
-        if debug_mode:
-            print(f"func {func["name"]}:")
+        # if debug_mode:
+        #     print(f"func {func["name"]}:")
         # for j in blocks.blocks:
         #     print(j)
         # print()
+        # blocks.empty_inaccessible()
         dataflow(blocks, ConstProp, optimize=True)
         dataflow(blocks, Liveness, optimize=True)
 
